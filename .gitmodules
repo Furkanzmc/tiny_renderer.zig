@@ -1,0 +1,9 @@
+[submodule "libs/stga"]
+	path = libs/stga
+	url = https://github.com/Furkanzmc/stga.git
+[submodule "tutorial"]
+	path = tutorial
+	url = https://github.com/ssloy/tinyrenderer.git
+[submodule "tinyrenderer.wiki"]
+	path = tinyrenderer.wiki
+	url = https://github.com/ssloy/tinyrenderer.wiki.git
