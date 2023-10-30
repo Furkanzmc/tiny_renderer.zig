@@ -52,8 +52,8 @@ fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_lengt
     unreachable;
 }
 
-const VertPraseError = error{ParseError};
-fn parseVertices(data: []const u8, data_length: usize) VertPraseError!Vec3f {
+const ModelLineParseError = error{ParseError};
+fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f {
     var vec: Vec3f = Vec3f.init(.{ 0, 0, 0 });
     var end_pos: u32 = 0;
     var index: u4 = 0;
@@ -62,12 +62,42 @@ fn parseVertices(data: []const u8, data_length: usize) VertPraseError!Vec3f {
             end_pos = result.end_pos;
             vec.set(index, result.value);
         } else |err| switch (err) {
-            SliceNumberError.InvalidCharacter => return VertPraseError.ParseError,
-            SliceNumberError.Overflow => return VertPraseError.ParseError,
+            SliceNumberError.InvalidCharacter => return ModelLineParseError.ParseError,
+            SliceNumberError.Overflow => return ModelLineParseError.ParseError,
         }
     }
 
     return vec;
+}
+
+fn parseFaces(data: []const u8, data_length: usize, allocator: Allocator) ModelLineParseError![]u64 {
+    var vec = ArrayList(u64).init(allocator);
+    var end_pos: u32 = 0;
+    var index: u4 = 1;
+    while (end_pos < data_length) {
+        if (index != 1) {
+            while (end_pos < data_length and data[end_pos] != ' ') : (end_pos += 1) {}
+            index = 1;
+            if (end_pos == data_length) {
+                break;
+            }
+        } else if (slice_number(u64, data, end_pos, data_length, '/')) |result| {
+            end_pos = result.end_pos;
+            index += 1;
+            if (vec.append(result.value)) |_| {} else |_| {}
+        } else |err| switch (err) {
+            SliceNumberError.InvalidCharacter => return ModelLineParseError.ParseError,
+            SliceNumberError.Overflow => return ModelLineParseError.ParseError,
+        }
+    }
+
+    return blk: {
+        if (vec.toOwnedSlice()) |slice| {
+            break :blk slice;
+        } else |_| {
+            break :blk ModelLineParseError.ParseError;
+        }
+    };
 }
 
 pub const Model = struct {
@@ -115,7 +145,7 @@ pub const Model = struct {
                             error.OutOfMemory => return ReadError.FileTooBig,
                         }
                     } else |err| switch (err) {
-                        VertPraseError.ParseError => log("Malformed line: {s}", .{buffer.items}),
+                        ModelLineParseError.ParseError => log("Malformed line: {s}", .{buffer.items}),
                     }
                 }
                 if (mem.startsWith(u8, buffer.items, "f ")) {}
@@ -218,6 +248,34 @@ test "parseVertices" {
         const vec = try parseVertices(number_str, number_str.len);
 
         try testing.expectEqual(Vec3f.init(.{ 0, 0, 0 }), vec);
+    }
+}
+
+test "parseFaces" {
+    const testing = @import("std").testing;
+    {
+        const number_str = "13/123/33 10/11/32 1/23/23";
+        const vec = ArrayList(u64).fromOwnedSlice(testing.allocator, try parseFaces(number_str, number_str.len, testing.allocator));
+        defer vec.deinit();
+
+        try testing.expectEqual(@as(usize, 3), vec.items.len);
+
+        try testing.expectEqual(@as(usize, 13), vec.items[0]);
+        try testing.expectEqual(@as(usize, 10), vec.items[1]);
+        try testing.expectEqual(@as(usize, 1), vec.items[2]);
+    }
+
+    {
+        const number_str = "13/123/33 10/11/32 1/23/23 32/32/32";
+        const vec = ArrayList(u64).fromOwnedSlice(testing.allocator, try parseFaces(number_str, number_str.len, testing.allocator));
+        defer vec.deinit();
+
+        try testing.expectEqual(@as(usize, 4), vec.items.len);
+
+        try testing.expectEqual(@as(usize, 13), vec.items[0]);
+        try testing.expectEqual(@as(usize, 10), vec.items[1]);
+        try testing.expectEqual(@as(usize, 1), vec.items[2]);
+        try testing.expectEqual(@as(usize, 32), vec.items[3]);
     }
 }
 
