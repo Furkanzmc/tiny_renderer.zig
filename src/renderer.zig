@@ -54,8 +54,8 @@ pub fn draw_line_3rd(image: *const Image, _from: types.Point, _to: types.Point, 
     var to = _to;
 
     const steep: bool = blk: {
-        const l: i64 = math.absInt(@as(i64, @intCast(from.x)) - @as(i64, @intCast(to.x))) catch unreachable;
-        const r: i64 = math.absInt(@as(i64, @intCast(from.y)) - @as(i64, @intCast(to.y))) catch unreachable;
+        const l: usize = @abs(@as(i64, @intCast(from.x)) - @as(i64, @intCast(to.x)));
+        const r: usize = @abs(@as(i64, @intCast(from.y)) - @as(i64, @intCast(to.y)));
         if (l < r) {
             from = swapPoints(&from);
             to = swapPoints(&to);

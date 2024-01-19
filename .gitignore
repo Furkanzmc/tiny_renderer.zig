@@ -1,2 +1,3 @@
 *.tga
 zig-cache/*
+zig-out/*
