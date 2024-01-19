@@ -3,15 +3,25 @@ const Vec3 = @import("types.zig").Vec3;
 const io = @import("std").io;
 const os = @import("std").os;
 const fs = @import("std").fs;
+const process = @import("std").process;
 const log = @import("std").log.err;
 const mem = @import("std").mem;
 const Allocator = mem.Allocator;
 const fmt = @import("std").fmt;
 const assert = @import("std").debug.assert;
+const builtin = @import("builtin");
 
 const Vec3f = Vec3(3, f64);
+const LineEnding = blk: {
+    if (builtin.os.tag == .windows) {
+        break :blk '\r';
+    }
+
+    break :blk '\n';
+};
 
 const SliceNumberError = fmt.ParseFloatError || fmt.ParseIntError;
+
 fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_length: usize, terminator: u8) (SliceNumberError!struct { value: T, end_pos: u32 }) {
     var index = start_index;
     var first: i32 = -1;
@@ -34,14 +44,15 @@ fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_lengt
         if (first > -1 and last > -1) {
             const f = @as(usize, @intCast(first));
             const l = @as(usize, @intCast(last));
+            const current_char = data[f..l];
 
             if (T == f64) {
-                const val: T = try fmt.parseFloat(T, data[f..l]);
+                const val: T = try fmt.parseFloat(T, current_char);
                 return .{ .value = val, .end_pos = @as(u32, @intCast(last)) };
             }
 
             if (T == u64) {
-                const val: T = try fmt.parseInt(T, data[f..l], 10);
+                const val: T = try fmt.parseInt(T, current_char, 10);
                 return .{ .value = val, .end_pos = @as(u32, @intCast(last)) };
             }
 
@@ -52,7 +63,9 @@ fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_lengt
     unreachable;
 }
 
-const ModelLineParseError = error{ParseError};
+const ModelLineParseError = error{ ParseError, InvalidCharacter };
+
+/// Parses a given line from a .obj file.
 fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f {
     var vec: Vec3f = Vec3f.init(.{ 0, 0, 0 });
     var end_pos: u32 = 0;
@@ -62,7 +75,7 @@ fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f
             end_pos = result.end_pos;
             vec.set(index, result.value);
         } else |err| switch (err) {
-            SliceNumberError.InvalidCharacter => return ModelLineParseError.ParseError,
+            SliceNumberError.InvalidCharacter => return ModelLineParseError.InvalidCharacter,
             SliceNumberError.Overflow => return ModelLineParseError.ParseError,
         }
     }
@@ -136,9 +149,10 @@ pub const Model = struct {
 
         const reader = file.reader();
         while (true) {
-            if (reader.streamUntilDelimiter(buffer.writer(), '\n', null)) |_| {
+            if (reader.streamUntilDelimiter(buffer.writer(), LineEnding, null)) |_| {
                 defer buffer.clearRetainingCapacity();
 
+                log("BUFFER: {s}", .{buffer.items});
                 if (mem.startsWith(u8, buffer.items, "v ")) {
                     if (parseVertices(buffer.items[2..], buffer.items.len - 2)) |vec| {
                         if (self.verts.append(vec)) |_| {} else |err| switch (err) {
@@ -146,11 +160,18 @@ pub const Model = struct {
                         }
                     } else |err| switch (err) {
                         ModelLineParseError.ParseError => log("Malformed line: {s}", .{buffer.items}),
+                        ModelLineParseError.InvalidCharacter => log("Invalid character: {s}", .{buffer.items}),
                     }
                 }
                 if (mem.startsWith(u8, buffer.items, "f ")) {}
             } else |err| switch (err) {
-                error.EndOfStream => break,
+                error.EndOfStream => {
+                    if (self.verts.items.len == 0) {
+                        return ReadError.CannotRead;
+                    } else {
+                        break;
+                    }
+                },
                 else => return ReadError.CannotRead,
             }
         }
@@ -287,13 +308,18 @@ test "Test Model init" {
 
     try testing.expectEqual(@as(usize, 0), model.verts.capacity);
 
-    const file_name = os.getenv("TINY_RENDERER_OBJ");
-    if (file_name) |path| {
+    if (process.getEnvVarOwned(testing.allocator, "TINY_RENDERER_OBJ")) |path| {
+        defer testing.allocator.free(path);
+
         try model.read(path);
         try testing.expectEqual(@as(usize, 4), model.verts.items.len);
         try testing.expectEqual(model.verts.items[0], Vec3f.init(.{ -1, -1, -1 }));
         try testing.expectEqual(model.verts.items[1], Vec3f.init(.{ 1, -1, -1 }));
         try testing.expectEqual(model.verts.items[2], Vec3f.init(.{ 1, -1, 1 }));
         try testing.expectEqual(model.verts.items[3], Vec3f.init(.{ -1, -1, 1 }));
+    } else |err| switch (err) {
+        error.OutOfMemory => log("Ran out of memory.", .{}),
+        error.EnvironmentVariableNotFound => log("Export TINY_RENDERER_OBJ", .{}),
+        error.InvalidUtf8 => log("Invalid env value.", .{}),
     }
 }
