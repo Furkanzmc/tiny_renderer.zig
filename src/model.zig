@@ -1,5 +1,5 @@
 const ArrayList = @import("std").ArrayList;
-const Vec3 = @import("types.zig").Vec3;
+const Vec = @import("types.zig").Vec;
 const io = @import("std").io;
 const os = @import("std").os;
 const fs = @import("std").fs;
@@ -10,8 +10,11 @@ const Allocator = mem.Allocator;
 const fmt = @import("std").fmt;
 const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
+const asAbsolutePath = @import("testUtils.zig").asAbsolutePath;
 
-const Vec3f = Vec3(3, f64);
+const Vec3f = Vec(3, f64);
+
+// FIXME: Windows code doesn't work.
 const LineEnding = blk: {
     if (builtin.os.tag == .windows) {
         break :blk '\r';
@@ -152,7 +155,6 @@ pub const Model = struct {
             if (reader.streamUntilDelimiter(buffer.writer(), LineEnding, null)) |_| {
                 defer buffer.clearRetainingCapacity();
 
-                log("BUFFER: {s}", .{buffer.items});
                 if (mem.startsWith(u8, buffer.items, "v ")) {
                     if (parseVertices(buffer.items[2..], buffer.items.len - 2)) |vec| {
                         if (self.verts.append(vec)) |_| {} else |err| switch (err) {
@@ -308,18 +310,17 @@ test "Test Model init" {
 
     try testing.expectEqual(@as(usize, 0), model.verts.capacity);
 
-    if (process.getEnvVarOwned(testing.allocator, "TINY_RENDERER_OBJ")) |path| {
-        defer testing.allocator.free(path);
-
-        try model.read(path);
-        try testing.expectEqual(@as(usize, 4), model.verts.items.len);
-        try testing.expectEqual(model.verts.items[0], Vec3f.init(.{ -1, -1, -1 }));
-        try testing.expectEqual(model.verts.items[1], Vec3f.init(.{ 1, -1, -1 }));
-        try testing.expectEqual(model.verts.items[2], Vec3f.init(.{ 1, -1, 1 }));
-        try testing.expectEqual(model.verts.items[3], Vec3f.init(.{ -1, -1, 1 }));
-    } else |err| switch (err) {
-        error.OutOfMemory => log("Ran out of memory.", .{}),
-        error.EnvironmentVariableNotFound => log("Export TINY_RENDERER_OBJ", .{}),
-        error.InvalidUtf8 => log("Invalid env value.", .{}),
+    const objFile = asAbsolutePath("./test_assets/floor.obj", testing.allocator);
+    if (objFile.len == 0) {
+        log("Export TINY_RENDERER_OBJ", .{});
+        return;
     }
+
+    defer testing.allocator.free(objFile);
+    try model.read(objFile);
+    try testing.expectEqual(@as(usize, 4), model.verts.items.len);
+    try testing.expectEqual(model.verts.items[0], Vec3f.init(.{ -1, -1, -1 }));
+    try testing.expectEqual(model.verts.items[1], Vec3f.init(.{ 1, -1, -1 }));
+    try testing.expectEqual(model.verts.items[2], Vec3f.init(.{ 1, -1, 1 }));
+    try testing.expectEqual(model.verts.items[3], Vec3f.init(.{ -1, -1, 1 }));
 }

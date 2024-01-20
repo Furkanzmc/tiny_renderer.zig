@@ -2,7 +2,7 @@ pub const Point = struct { x: usize, y: usize };
 pub const Size = struct { width: usize, height: usize };
 const assert = @import("std").debug.assert;
 
-pub fn Vec3(comptime N: u8, comptime T: type) type {
+pub fn Vec(comptime N: u8, comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -52,15 +52,15 @@ pub fn Vec3(comptime N: u8, comptime T: type) type {
     };
 }
 
-test "Vec3" {
+test "Vec" {
     const testing = @import("std").testing;
 
-    var vec1 = Vec3(3, i32).init(.{0,0,0});
+    var vec1 = Vec(3, i32).init(.{0,0,0});
     try testing.expectEqual(vec1.get(0), 0);
 
     vec1.set(0, 1);
 
-    var vec2 = Vec3(3, i32).init(.{0,0,0});
+    var vec2 = Vec(3, i32).init(.{0,0,0});
     vec2.set(0, 31);
     vec2.add(vec1);
 
