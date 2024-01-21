@@ -27,7 +27,7 @@ pub fn main() !void {
 
         renderer.draw_line(&image, start_pos, end_pos, &RED);
 
-        try image.writeFilepath(try std.fmt.allocPrint(allocator, "{s}/{s}", .{ current_dir, "line_1.tga" }), false);
+        try image.writeFilepath(try std.fmt.allocPrint(allocator, "{s}/{s}", .{ current_dir, "zig-out/line_1.tga" }), false);
     }
 
     {
@@ -36,7 +36,7 @@ pub fn main() !void {
 
         renderer.draw_line_2nd(&image, start_pos, end_pos, &RED);
 
-        try image.writeFilepath(try std.fmt.allocPrint(allocator, "{s}/{s}", .{ current_dir, "line_2.tga" }), false);
+        try image.writeFilepath(try std.fmt.allocPrint(allocator, "{s}/{s}", .{ current_dir, "zig-out/line_2.tga" }), false);
     }
 
     {
@@ -45,7 +45,7 @@ pub fn main() !void {
 
         renderer.draw_line_3rd(&image, start_pos, end_pos, &RED);
 
-        try image.writeFilepath(try std.fmt.allocPrint(allocator, "{s}/{s}", .{ current_dir, "line_3.tga" }), false);
+        try image.writeFilepath(try std.fmt.allocPrint(allocator, "{s}/{s}", .{ current_dir, "zig-out/line_3.tga" }), false);
     }
 
     std.log.info("Finished rendering.", .{});

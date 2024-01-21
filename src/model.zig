@@ -26,11 +26,11 @@ const LineEnding = blk: {
 const SliceNumberError = fmt.ParseFloatError || fmt.ParseIntError;
 
 fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_length: usize, terminator: u8) (SliceNumberError!struct { value: T, end_pos: u32 }) {
+    assert(start_index < data_length);
+
     var index = start_index;
     var first: i32 = -1;
     var last: i32 = -1;
-
-    assert(start_index < data_length);
 
     while (index < data_length) : (index += 1) {
         const is_space = data[index] == @as(u8, ' ');
@@ -86,6 +86,29 @@ fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f
     return vec;
 }
 
+fn parseFaces2(line: []const u8, line_lenght: usize) ModelLineParseError!struct { verts: [3]u64, tex: [3]u64, nrm: [3]u64 } {
+    _ = line_lenght;
+    var verts: [3]u64 = .{ 0, 0, 0 };
+    var tex: [3]u64 = .{ 0, 0, 0 };
+    var nrm: [3]u64 = .{ 0, 0, 0 };
+
+    var it = mem.split(u8, line, " ");
+    while (try it.next()) |numbers| {
+        var valIt = mem.split(u8, numbers, "/");
+
+        var index: u4 = 0;
+        while (try valIt.next()) |number| {
+            switch (index) {
+                0 => verts[index] = number,
+                1 => tex[index] = number,
+                2 => nrm[index] = number,
+            }
+
+            index += 1;
+        }
+    }
+}
+
 fn parseFaces(data: []const u8, data_length: usize, allocator: Allocator) ModelLineParseError![]u64 {
     var vec = ArrayList(u64).init(allocator);
     var end_pos: u32 = 0;
@@ -120,28 +143,36 @@ pub const Model = struct {
     const ReadError = error{ CannotRead, FileTooBig };
 
     verts: ArrayList(Vec3f),
+    face_verts: ArrayList(u64),
+    face_tex: ArrayList(u64),
+    face_nrm: ArrayList(u64),
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) @This() {
-        return .{ .verts = ArrayList(Vec3f).init(allocator), .allocator = allocator };
+        return .{ .verts = ArrayList(Vec3f).init(allocator), .face_verts = ArrayList(u64).init(allocator), .face_tex = ArrayList(u64).init(allocator), .face_nrm = ArrayList(u64).init(allocator), .allocator = allocator };
     }
 
     pub fn deinit(self: @This()) void {
         self.verts.deinit();
+        self.face_verts.deinit();
+        self.face_tex.deinit();
+        self.face_nrm.deinit();
     }
 
-    pub fn read(self: *Model, file_path: []const u8) (fs.File.OpenError || ReadError)!void {
-        const file: fs.File = getFile: {
+    pub fn read(self: *Model, file_path: []const u8) (fs.File.OpenError || ReadError || ModelLineParseError)!void {
+        const file: fs.File = redFile: {
             if (fs.openFileAbsolute(file_path, .{ .mode = fs.File.OpenMode.read_only })) |file| {
-                break :getFile file;
+                break :redFile file;
             } else |err| {
                 return err;
             }
         };
         defer file.close();
+        errdefer file.close();
 
         var buffer = ArrayList(u8).init(self.allocator);
         defer buffer.deinit();
+        errdefer buffer.deinit();
 
         if (buffer.ensureTotalCapacity(32)) |_| {} else |_| {
             return ReadError.CannotRead;
@@ -151,21 +182,23 @@ pub const Model = struct {
         errdefer self.verts.deinit();
 
         const reader = file.reader();
+        var line_nr: u64 = 0;
         while (true) {
+            line_nr += 1;
             if (reader.streamUntilDelimiter(buffer.writer(), LineEnding, null)) |_| {
                 defer buffer.clearRetainingCapacity();
 
-                if (mem.startsWith(u8, buffer.items, "v ")) {
-                    if (parseVertices(buffer.items[2..], buffer.items.len - 2)) |vec| {
+                const line = buffer.items;
+                if (mem.startsWith(u8, line, "v ")) {
+                    if (parseVertices(line[2..], line.len - 2)) |vec| {
                         if (self.verts.append(vec)) |_| {} else |err| switch (err) {
                             error.OutOfMemory => return ReadError.FileTooBig,
                         }
                     } else |err| switch (err) {
-                        ModelLineParseError.ParseError => log("Malformed line: {s}", .{buffer.items}),
-                        ModelLineParseError.InvalidCharacter => log("Invalid character: {s}", .{buffer.items}),
+                        ModelLineParseError.InvalidCharacter => log("Invalid character on line {}: {s}", .{ line_nr, line }),
+                        ModelLineParseError.ParseError => log("Parse error on line {}: {s}", .{ line_nr, line }),
                     }
-                }
-                if (mem.startsWith(u8, buffer.items, "f ")) {}
+                } else if (mem.startsWith(u8, line, "f ")) {}
             } else |err| switch (err) {
                 error.EndOfStream => {
                     if (self.verts.items.len == 0) {

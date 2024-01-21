@@ -1,7 +1,7 @@
 vim.cmd([[cabbrev just Just]])
-vim.cmd([[nmap <leader>ab :Just<CR>]])
-vim.cmd([[nmap <leader>ar :Just run<CR>]])
-vim.cmd([[nmap <leader>at :execute("Just test " . substitute(expand("%"), "\\", "/", "g"))<CR>]])
+vim.cmd([[nmap <leader>ab :silent Just<CR>]])
+vim.cmd([[nmap <leader>ar :silent Just run<CR>]])
+vim.cmd([[nmap <leader>at :silent execute("Just test " . substitute(expand("%"), "\\", "/", "g"))<CR>]])
 
 vim.api.nvim_create_autocmd({ "VimLeavePre" }, {
     group = vim.api.nvim_create_augroup("nvimrc_autocmd", { clear = true }),
