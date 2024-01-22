@@ -140,6 +140,20 @@ pub const Model = struct {
         self.face_nrm.deinit();
     }
 
+    pub fn face_vert(self: @This(), index: u64) [3]u64 {
+        assert(index < self.face_verts.items.len);
+
+        var face = self.face_verts.items[index];
+        face[0] = if (face[0] > 0) face[0] - 1 else face[0];
+        face[1] = if (face[1] > 0) face[1] - 1 else face[1];
+        face[2] = if (face[2] > 0) face[2] - 1 else face[2];
+        return face;
+    }
+
+    pub fn face_count(self: @This()) u64 {
+        return self.face_verts.items.len;
+    }
+
     pub fn read(self: *Model, file_path: []const u8) (fs.File.OpenError || ReadError || ModelLineParseError)!void {
         const file: fs.File = redFile: {
             if (fs.openFileAbsolute(file_path, .{ .mode = fs.File.OpenMode.read_only })) |file| {
@@ -158,9 +172,6 @@ pub const Model = struct {
         if (buffer.ensureTotalCapacity(32)) |_| {} else |_| {
             return ReadError.CannotRead;
         }
-
-        self.verts = ArrayList(Vec3f).init(self.allocator);
-        errdefer self.verts.deinit();
 
         const reader = file.reader();
         var line_nr: u64 = 0;
@@ -340,6 +351,23 @@ test "parseFaces" {
         try testing.expectEqual(@as(u64, 33), result.nrm[0]);
         try testing.expectEqual(@as(u64, 32), result.nrm[1]);
         try testing.expectEqual(@as(u64, 23), result.nrm[2]);
+    }
+
+    {
+        const number_str = "1 2";
+        const result = try parseFaces(number_str);
+
+        try testing.expectEqual(@as(u64, 1), result.verts[0]);
+        try testing.expectEqual(@as(u64, 2), result.verts[1]);
+        try testing.expectEqual(@as(u64, 0), result.verts[2]);
+
+        try testing.expectEqual(@as(u64, 0), result.tex[0]);
+        try testing.expectEqual(@as(u64, 0), result.tex[1]);
+        try testing.expectEqual(@as(u64, 0), result.tex[2]);
+
+        try testing.expectEqual(@as(u64, 0), result.nrm[0]);
+        try testing.expectEqual(@as(u64, 0), result.nrm[1]);
+        try testing.expectEqual(@as(u64, 0), result.nrm[2]);
     }
 }
 

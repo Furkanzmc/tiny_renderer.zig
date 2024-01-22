@@ -1,6 +1,12 @@
-pub const Point = struct { x: usize, y: usize };
 pub const Size = struct { width: usize, height: usize };
 const assert = @import("std").debug.assert;
+
+pub fn Point(comptime T: type) type {
+    return struct {
+        x: T,
+        y: T,
+    };
+}
 
 pub fn Vec(comptime N: u8, comptime T: type) type {
     return struct {
@@ -9,7 +15,7 @@ pub fn Vec(comptime N: u8, comptime T: type) type {
         data: [N]T,
 
         pub fn init(initial: [N]T) Self {
-            return .{.data=initial};
+            return .{ .data = initial };
         }
 
         pub fn get(self: *const Self, index: u8) T {
@@ -25,7 +31,7 @@ pub fn Vec(comptime N: u8, comptime T: type) type {
 
             var index: u8 = 0;
             var equal = true;
-            while(index < self.data.len) : (index += 1) {
+            while (index < self.data.len) : (index += 1) {
                 equal &= self.data[index] == other.data[index];
             }
 
@@ -36,7 +42,7 @@ pub fn Vec(comptime N: u8, comptime T: type) type {
             assert(self.data.len == other.data.len);
 
             var index: u8 = 0;
-            while(index < self.data.len) : (index += 1) {
+            while (index < self.data.len) : (index += 1) {
                 self.data[index] += other.data[index];
             }
         }
@@ -45,7 +51,7 @@ pub fn Vec(comptime N: u8, comptime T: type) type {
             assert(self.data.len == other.data.len);
 
             var index: u8 = 0;
-            while(index < self.data.len) : (index += 1) {
+            while (index < self.data.len) : (index += 1) {
                 self.data[index] -= other.data[index];
             }
         }
@@ -55,12 +61,12 @@ pub fn Vec(comptime N: u8, comptime T: type) type {
 test "Vec" {
     const testing = @import("std").testing;
 
-    var vec1 = Vec(3, i32).init(.{0,0,0});
+    var vec1 = Vec(3, i32).init(.{ 0, 0, 0 });
     try testing.expectEqual(vec1.get(0), 0);
 
     vec1.set(0, 1);
 
-    var vec2 = Vec(3, i32).init(.{0,0,0});
+    var vec2 = Vec(3, i32).init(.{ 0, 0, 0 });
     vec2.set(0, 31);
     vec2.add(vec1);
 
