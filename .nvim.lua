@@ -7,7 +7,7 @@ vim.api.nvim_create_autocmd({ "VimLeavePre" }, {
     group = vim.api.nvim_create_augroup("nvimrc_autocmd", { clear = true }),
     callback = function(_)
         if vim.fn.expand("$AW_AUTO_SESSION") == "1" then
-            cmd([[mksession! session.vim]])
+            vim.cmd([[mksession! session.vim]])
         end
     end,
 })

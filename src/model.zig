@@ -4,7 +4,7 @@ const io = @import("std").io;
 const os = @import("std").os;
 const fs = @import("std").fs;
 const process = @import("std").process;
-const log = @import("std").log.err;
+const log_error = @import("std").log.err;
 const mem = @import("std").mem;
 const Allocator = mem.Allocator;
 const fmt = @import("std").fmt;
@@ -86,57 +86,38 @@ fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f
     return vec;
 }
 
-fn parseFaces2(line: []const u8, line_lenght: usize) ModelLineParseError!struct { verts: [3]u64, tex: [3]u64, nrm: [3]u64 } {
-    _ = line_lenght;
+fn parseFaces(line: []const u8) (ModelLineParseError || fmt.ParseIntError)!struct { verts: [3]u64, tex: [3]u64, nrm: [3]u64 } {
     var verts: [3]u64 = .{ 0, 0, 0 };
     var tex: [3]u64 = .{ 0, 0, 0 };
     var nrm: [3]u64 = .{ 0, 0, 0 };
 
     var it = mem.split(u8, line, " ");
-    while (try it.next()) |numbers| {
+    var iteration: u4 = 0;
+    while (it.next()) |numbers| {
+        assert(iteration < 3);
+
         var valIt = mem.split(u8, numbers, "/");
+        var v_type: u4 = 0;
+        while (valIt.next()) |number| {
+            assert(v_type < 3);
 
-        var index: u4 = 0;
-        while (try valIt.next()) |number| {
-            switch (index) {
-                0 => verts[index] = number,
-                1 => tex[index] = number,
-                2 => nrm[index] = number,
+            if (number.len > 0) {
+                const val = try fmt.parseInt(u64, number, 10);
+                switch (v_type) {
+                    0 => verts[iteration] = val,
+                    1 => tex[iteration] = val,
+                    2 => nrm[iteration] = val,
+                    else => unreachable,
+                }
             }
 
-            index += 1;
+            v_type += 1;
         }
-    }
-}
 
-fn parseFaces(data: []const u8, data_length: usize, allocator: Allocator) ModelLineParseError![]u64 {
-    var vec = ArrayList(u64).init(allocator);
-    var end_pos: u32 = 0;
-    var index: u4 = 1;
-    while (end_pos < data_length) {
-        if (index != 1) {
-            while (end_pos < data_length and data[end_pos] != ' ') : (end_pos += 1) {}
-            index = 1;
-            if (end_pos == data_length) {
-                break;
-            }
-        } else if (slice_number(u64, data, end_pos, data_length, '/')) |result| {
-            end_pos = result.end_pos;
-            index += 1;
-            if (vec.append(result.value)) |_| {} else |_| {}
-        } else |err| switch (err) {
-            SliceNumberError.InvalidCharacter => return ModelLineParseError.ParseError,
-            SliceNumberError.Overflow => return ModelLineParseError.ParseError,
-        }
+        iteration += 1;
     }
 
-    return blk: {
-        if (vec.toOwnedSlice()) |slice| {
-            break :blk slice;
-        } else |_| {
-            break :blk ModelLineParseError.ParseError;
-        }
-    };
+    return .{ .verts = verts, .tex = tex, .nrm = nrm };
 }
 
 pub const Model = struct {
@@ -195,8 +176,8 @@ pub const Model = struct {
                             error.OutOfMemory => return ReadError.FileTooBig,
                         }
                     } else |err| switch (err) {
-                        ModelLineParseError.InvalidCharacter => log("Invalid character on line {}: {s}", .{ line_nr, line }),
-                        ModelLineParseError.ParseError => log("Parse error on line {}: {s}", .{ line_nr, line }),
+                        ModelLineParseError.InvalidCharacter => log_error("Invalid character on line {}: {s}", .{ line_nr, line }),
+                        ModelLineParseError.ParseError => log_error("Parse error on line {}: {s}", .{ line_nr, line }),
                     }
                 } else if (mem.startsWith(u8, line, "f ")) {}
             } else |err| switch (err) {
@@ -311,27 +292,36 @@ test "parseFaces" {
     const testing = @import("std").testing;
     {
         const number_str = "13/123/33 10/11/32 1/23/23";
-        const vec = ArrayList(u64).fromOwnedSlice(testing.allocator, try parseFaces(number_str, number_str.len, testing.allocator));
-        defer vec.deinit();
+        const result = try parseFaces(number_str);
 
-        try testing.expectEqual(@as(usize, 3), vec.items.len);
+        try testing.expectEqual(@as(u64, 13), result.verts[0]);
+        try testing.expectEqual(@as(u64, 10), result.verts[1]);
+        try testing.expectEqual(@as(u64, 1), result.verts[2]);
 
-        try testing.expectEqual(@as(usize, 13), vec.items[0]);
-        try testing.expectEqual(@as(usize, 10), vec.items[1]);
-        try testing.expectEqual(@as(usize, 1), vec.items[2]);
+        try testing.expectEqual(@as(u64, 123), result.tex[0]);
+        try testing.expectEqual(@as(u64, 11), result.tex[1]);
+        try testing.expectEqual(@as(u64, 23), result.tex[2]);
+
+        try testing.expectEqual(@as(u64, 33), result.nrm[0]);
+        try testing.expectEqual(@as(u64, 32), result.nrm[1]);
+        try testing.expectEqual(@as(u64, 23), result.nrm[2]);
     }
 
     {
-        const number_str = "13/123/33 10/11/32 1/23/23 32/32/32";
-        const vec = ArrayList(u64).fromOwnedSlice(testing.allocator, try parseFaces(number_str, number_str.len, testing.allocator));
-        defer vec.deinit();
+        const number_str = "13//33 10//32 1//23";
+        const result = try parseFaces(number_str);
 
-        try testing.expectEqual(@as(usize, 4), vec.items.len);
+        try testing.expectEqual(@as(u64, 13), result.verts[0]);
+        try testing.expectEqual(@as(u64, 10), result.verts[1]);
+        try testing.expectEqual(@as(u64, 1), result.verts[2]);
 
-        try testing.expectEqual(@as(usize, 13), vec.items[0]);
-        try testing.expectEqual(@as(usize, 10), vec.items[1]);
-        try testing.expectEqual(@as(usize, 1), vec.items[2]);
-        try testing.expectEqual(@as(usize, 32), vec.items[3]);
+        try testing.expectEqual(@as(u64, 0), result.tex[0]);
+        try testing.expectEqual(@as(u64, 0), result.tex[1]);
+        try testing.expectEqual(@as(u64, 0), result.tex[2]);
+
+        try testing.expectEqual(@as(u64, 33), result.nrm[0]);
+        try testing.expectEqual(@as(u64, 32), result.nrm[1]);
+        try testing.expectEqual(@as(u64, 23), result.nrm[2]);
     }
 }
 
@@ -345,7 +335,7 @@ test "Test Model init" {
 
     const objFile = asAbsolutePath("./test_assets/floor.obj", testing.allocator);
     if (objFile.len == 0) {
-        log("Export TINY_RENDERER_OBJ", .{});
+        log_error("Export TINY_RENDERER_OBJ", .{});
         return;
     }
 
