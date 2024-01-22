@@ -124,13 +124,13 @@ pub const Model = struct {
     const ReadError = error{ CannotRead, FileTooBig };
 
     verts: ArrayList(Vec3f),
-    face_verts: ArrayList(u64),
-    face_tex: ArrayList(u64),
-    face_nrm: ArrayList(u64),
+    face_verts: ArrayList([3]u64),
+    face_tex: ArrayList([3]u64),
+    face_nrm: ArrayList([3]u64),
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) @This() {
-        return .{ .verts = ArrayList(Vec3f).init(allocator), .face_verts = ArrayList(u64).init(allocator), .face_tex = ArrayList(u64).init(allocator), .face_nrm = ArrayList(u64).init(allocator), .allocator = allocator };
+        return .{ .verts = ArrayList(Vec3f).init(allocator), .face_verts = ArrayList([3]u64).init(allocator), .face_tex = ArrayList([3]u64).init(allocator), .face_nrm = ArrayList([3]u64).init(allocator), .allocator = allocator };
     }
 
     pub fn deinit(self: @This()) void {
@@ -179,7 +179,25 @@ pub const Model = struct {
                         ModelLineParseError.InvalidCharacter => log_error("Invalid character on line {}: {s}", .{ line_nr, line }),
                         ModelLineParseError.ParseError => log_error("Parse error on line {}: {s}", .{ line_nr, line }),
                     }
-                } else if (mem.startsWith(u8, line, "f ")) {}
+                } else if (mem.startsWith(u8, line, "f ")) {
+                    if (parseFaces(line[2..])) |face| {
+                        if (self.face_verts.append(face.verts)) |_| {} else |err| switch (err) {
+                            error.OutOfMemory => return ReadError.FileTooBig,
+                        }
+
+                        if (self.face_tex.append(face.tex)) |_| {} else |err| switch (err) {
+                            error.OutOfMemory => return ReadError.FileTooBig,
+                        }
+
+                        if (self.face_nrm.append(face.nrm)) |_| {} else |err| switch (err) {
+                            error.OutOfMemory => return ReadError.FileTooBig,
+                        }
+                    } else |err| switch (err) {
+                        ModelLineParseError.InvalidCharacter => log_error("Invalid character on line {}: {s}", .{ line_nr, line }),
+                        ModelLineParseError.ParseError => log_error("Parse error on line {}: {s}", .{ line_nr, line }),
+                        fmt.ParseIntError.Overflow => log_error("Overflow with number on line {}: {s}", .{ line_nr, line }),
+                    }
+                }
             } else |err| switch (err) {
                 error.EndOfStream => {
                     if (self.verts.items.len == 0) {
@@ -334,16 +352,45 @@ test "Test Model init" {
     try testing.expectEqual(@as(usize, 0), model.verts.capacity);
 
     const objFile = asAbsolutePath("./test_assets/floor.obj", testing.allocator);
-    if (objFile.len == 0) {
-        log_error("Export TINY_RENDERER_OBJ", .{});
-        return;
-    }
+    try testing.expect(objFile.len > 0);
 
     defer testing.allocator.free(objFile);
     try model.read(objFile);
-    try testing.expectEqual(@as(usize, 4), model.verts.items.len);
-    try testing.expectEqual(model.verts.items[0], Vec3f.init(.{ -1, -1, -1 }));
-    try testing.expectEqual(model.verts.items[1], Vec3f.init(.{ 1, -1, -1 }));
-    try testing.expectEqual(model.verts.items[2], Vec3f.init(.{ 1, -1, 1 }));
-    try testing.expectEqual(model.verts.items[3], Vec3f.init(.{ -1, -1, 1 }));
+
+    {
+        try testing.expectEqual(@as(usize, 4), model.verts.items.len);
+        try testing.expectEqual(model.verts.items[0], Vec3f.init(.{ -1, -1, -1 }));
+        try testing.expectEqual(model.verts.items[1], Vec3f.init(.{ 1, -1, -1 }));
+        try testing.expectEqual(model.verts.items[2], Vec3f.init(.{ 1, -1, 1 }));
+        try testing.expectEqual(model.verts.items[3], Vec3f.init(.{ -1, -1, 1 }));
+    }
+
+    {
+        try testing.expectEqual(@as(usize, 2), model.face_verts.items.len);
+        try testing.expectEqual(@as(u64, 3), model.face_verts.items[0][0]);
+        try testing.expectEqual(@as(u64, 2), model.face_verts.items[0][1]);
+        try testing.expectEqual(@as(u64, 1), model.face_verts.items[0][2]);
+
+        try testing.expectEqual(@as(u64, 4), model.face_verts.items[1][0]);
+        try testing.expectEqual(@as(u64, 3), model.face_verts.items[1][1]);
+        try testing.expectEqual(@as(u64, 1), model.face_verts.items[1][2]);
+
+        try testing.expectEqual(@as(usize, 2), model.face_tex.items.len);
+        try testing.expectEqual(@as(u64, 3), model.face_tex.items[0][0]);
+        try testing.expectEqual(@as(u64, 2), model.face_tex.items[0][1]);
+        try testing.expectEqual(@as(u64, 1), model.face_tex.items[0][2]);
+
+        try testing.expectEqual(@as(u64, 4), model.face_tex.items[1][0]);
+        try testing.expectEqual(@as(u64, 3), model.face_tex.items[1][1]);
+        try testing.expectEqual(@as(u64, 1), model.face_tex.items[1][2]);
+
+        try testing.expectEqual(@as(usize, 2), model.face_nrm.items.len);
+        try testing.expectEqual(@as(u64, 1), model.face_nrm.items[0][0]);
+        try testing.expectEqual(@as(u64, 1), model.face_nrm.items[0][1]);
+        try testing.expectEqual(@as(u64, 1), model.face_nrm.items[0][2]);
+
+        try testing.expectEqual(@as(u64, 1), model.face_nrm.items[1][0]);
+        try testing.expectEqual(@as(u64, 1), model.face_nrm.items[1][1]);
+        try testing.expectEqual(@as(u64, 1), model.face_nrm.items[1][2]);
+    }
 }
