@@ -70,12 +70,15 @@ const ModelLineParseError = error{ ParseError, InvalidCharacter };
 
 /// Parses a given line from a .obj file.
 fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f {
+    log_error("parseVertices: {s}", .{data});
     var vec: Vec3f = Vec3f.init(.{ 0, 0, 0 });
     var end_pos: u32 = 0;
     var index: u4 = 0;
     while (end_pos < data_length) : (index += 1) {
         if (slice_number(f64, data, end_pos, data_length, ' ')) |result| {
             end_pos = result.end_pos;
+            log_error("\t index: {}", .{index});
+            log_error("\t result.value: {}", .{result.value});
             vec.set(index, result.value);
         } else |err| switch (err) {
             SliceNumberError.InvalidCharacter => return ModelLineParseError.InvalidCharacter,
@@ -83,6 +86,7 @@ fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f
         }
     }
 
+    log_error("\t vec: {}x{}", .{ vec.get(0), vec.get(1) });
     return vec;
 }
 
@@ -182,7 +186,9 @@ pub const Model = struct {
 
                 const line = buffer.items;
                 if (mem.startsWith(u8, line, "v ")) {
+                    log_error("ASD_LINE: {s}", .{line});
                     if (parseVertices(line[2..], line.len - 2)) |vec| {
+                        log_error("\t ASD_VEC: {}x{}", .{ vec.get(0), vec.get(1) });
                         if (self.verts.append(vec)) |_| {} else |err| switch (err) {
                             error.OutOfMemory => return ReadError.FileTooBig,
                         }
@@ -254,6 +260,28 @@ test "slice_number" {
     }
 
     {
+        const number_str = "-0.000581696 -0.734665 -0.623267";
+        var end_pos: u32 = 0;
+        {
+            const num = try slice_number(f64, number_str, 0, number_str.len, ' ');
+            end_pos = num.end_pos;
+            try testing.expectEqual(@as(f64, -0.000581696), num.value);
+        }
+
+        {
+            const num = try slice_number(f64, number_str, end_pos, number_str.len, ' ');
+            end_pos = num.end_pos;
+            try testing.expectEqual(@as(f64, -0.734665), num.value);
+        }
+
+        {
+            const num = try slice_number(f64, number_str, end_pos, number_str.len, ' ');
+            end_pos = num.end_pos;
+            try testing.expectEqual(@as(f64, -0.623267), num.value);
+        }
+    }
+
+    {
         const number_str = "3/2/1";
         var end_pos: u32 = 0;
         {
@@ -286,6 +314,13 @@ test "parseVertices" {
         const vec = try parseVertices(number_str, number_str.len);
 
         try testing.expectEqual(Vec3f.init(.{ -13.0, 123.0, -33.0 }), vec);
+    }
+
+    {
+        const number_str = "-0.000581696 -0.734665 -0.623267";
+        const vec = try parseVertices(number_str, number_str.len);
+
+        try testing.expectEqual(Vec3f.init(.{ -0.000581696, -0.734665, -0.623267 }), vec);
     }
 
     {
