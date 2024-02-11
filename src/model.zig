@@ -4,7 +4,7 @@ const io = @import("std").io;
 const os = @import("std").os;
 const fs = @import("std").fs;
 const process = @import("std").process;
-const log_error = @import("std").log.err;
+const log = @import("std").log;
 const mem = @import("std").mem;
 const Allocator = mem.Allocator;
 const fmt = @import("std").fmt;
@@ -23,7 +23,60 @@ const LineEnding = blk: {
     break :blk '\n';
 };
 
-const SliceNumberError = fmt.ParseFloatError || fmt.ParseIntError;
+pub const SliceNumberError = fmt.ParseFloatError || fmt.ParseIntError;
+pub const ReadError = error{ CannotRead, FileTooBig };
+
+const ReadLineState = struct {
+    allocator: Allocator,
+    file_path: []const u8,
+    buffer: ArrayList(u8),
+    file: fs.File,
+    linenr: u64,
+    current_line: []u8,
+    end_of_stream: bool,
+
+    pub fn init(allocator: Allocator, file_path: []const u8) (fs.File.OpenError!@This()) {
+        const file: fs.File = redFile: {
+            if (fs.openFileAbsolute(file_path, .{ .mode = fs.File.OpenMode.read_only })) |file| {
+                break :redFile file;
+            } else |err| {
+                return err;
+            }
+        };
+        var buffer = ArrayList(u8).init(allocator);
+        if (buffer.ensureTotalCapacity(32)) |_| {} else |_| {
+            return fs.File.OpenError.FileTooBig;
+        }
+
+        return .{ .allocator = allocator, .file_path = file_path, .buffer = buffer, .file = file, .linenr = 0, .current_line = "", .end_of_stream = false };
+    }
+
+    pub fn deinit(self: @This()) void {
+        self.buffer.deinit();
+        self.file.close();
+        self.allocator.free(self.current_line);
+    }
+};
+
+fn read_line(state: *ReadLineState) (fs.File.OpenError || ReadError || ModelLineParseError)!void {
+    if (state.file.reader().streamUntilDelimiter(state.buffer.writer(), LineEnding, null)) |_| {
+        state.linenr += 1;
+        if (state.allocator.alloc(u8, state.buffer.items.len)) |memory| {
+            state.current_line = memory;
+        } else |_| {
+            return ReadError.CannotRead;
+        }
+
+        @memcpy(state.current_line, state.buffer.items);
+        state.buffer.clearRetainingCapacity();
+    } else |err| switch (err) {
+        error.EndOfStream => {
+            state.end_of_stream = true;
+            return;
+        },
+        else => return ReadError.CannotRead,
+    }
+}
 
 fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_length: usize, terminator: u8) (SliceNumberError!struct { value: T, end_pos: u32 }) {
     assert(start_index < data_length);
@@ -70,15 +123,16 @@ const ModelLineParseError = error{ ParseError, InvalidCharacter };
 
 /// Parses a given line from a .obj file.
 fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f {
-    log_error("parseVertices: {s}", .{data});
+    log.info("parseVertices: {s}", .{data});
     var vec: Vec3f = Vec3f.init(.{ 0, 0, 0 });
     var end_pos: u32 = 0;
     var index: u4 = 0;
     while (end_pos < data_length) : (index += 1) {
         if (slice_number(f64, data, end_pos, data_length, ' ')) |result| {
             end_pos = result.end_pos;
-            log_error("\t index: {}", .{index});
-            log_error("\t result.value: {}", .{result.value});
+            log.info("\t index: {}", .{index});
+            log.info("\t data: {s}", .{data});
+            log.info("\t result.value: {}", .{result.value});
             vec.set(index, result.value);
         } else |err| switch (err) {
             SliceNumberError.InvalidCharacter => return ModelLineParseError.InvalidCharacter,
@@ -86,7 +140,7 @@ fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f
         }
     }
 
-    log_error("\t vec: {}x{}", .{ vec.get(0), vec.get(1) });
+    log.info("\t vec: {}x{}", .{ vec.get(0), vec.get(1) });
     return vec;
 }
 
@@ -125,8 +179,6 @@ fn parseFaces(line: []const u8) (ModelLineParseError || fmt.ParseIntError)!struc
 }
 
 pub const Model = struct {
-    const ReadError = error{ CannotRead, FileTooBig };
-
     verts: ArrayList(Vec3f),
     face_verts: ArrayList([3]u64),
     face_tex: ArrayList([3]u64),
@@ -186,15 +238,15 @@ pub const Model = struct {
 
                 const line = buffer.items;
                 if (mem.startsWith(u8, line, "v ")) {
-                    log_error("ASD_LINE: {s}", .{line});
+                    log.info("ASD_LINE: {s}", .{line});
                     if (parseVertices(line[2..], line.len - 2)) |vec| {
-                        log_error("\t ASD_VEC: {}x{}", .{ vec.get(0), vec.get(1) });
+                        log.info("\t ASD_VEC: {}x{}", .{ vec.get(0), vec.get(1) });
                         if (self.verts.append(vec)) |_| {} else |err| switch (err) {
                             error.OutOfMemory => return ReadError.FileTooBig,
                         }
                     } else |err| switch (err) {
-                        ModelLineParseError.InvalidCharacter => log_error("Invalid character on line {}: {s}", .{ line_nr, line }),
-                        ModelLineParseError.ParseError => log_error("Parse error on line {}: {s}", .{ line_nr, line }),
+                        ModelLineParseError.InvalidCharacter => log.err("Invalid character on line {}: {s}", .{ line_nr, line }),
+                        ModelLineParseError.ParseError => log.err("Parse error on line {}: {s}", .{ line_nr, line }),
                     }
                 } else if (mem.startsWith(u8, line, "f ")) {
                     if (parseFaces(line[2..])) |face| {
@@ -210,9 +262,9 @@ pub const Model = struct {
                             error.OutOfMemory => return ReadError.FileTooBig,
                         }
                     } else |err| switch (err) {
-                        ModelLineParseError.InvalidCharacter => log_error("Invalid character on line {}: {s}", .{ line_nr, line }),
-                        ModelLineParseError.ParseError => log_error("Parse error on line {}: {s}", .{ line_nr, line }),
-                        fmt.ParseIntError.Overflow => log_error("Overflow with number on line {}: {s}", .{ line_nr, line }),
+                        ModelLineParseError.InvalidCharacter => log.err("Invalid character on line {}: {s}", .{ line_nr, line }),
+                        ModelLineParseError.ParseError => log.err("Parse error on line {}: {s}", .{ line_nr, line }),
+                        fmt.ParseIntError.Overflow => log.err("Overflow with number on line {}: {s}", .{ line_nr, line }),
                     }
                 }
             } else |err| switch (err) {
@@ -303,6 +355,41 @@ test "slice_number" {
             end_pos = num.end_pos;
             try testing.expectEqual(@as(u64, 1), num.value);
             try testing.expectEqual(@as(u32, 5), end_pos);
+        }
+    }
+}
+
+test "Test slice_number with file" {
+    const testing = @import("std").testing;
+
+    const objFile = asAbsolutePath("./test_assets/slice_number.obj", testing.allocator);
+    try testing.expect(objFile.len > 0);
+
+    var state = try ReadLineState.init(testing.allocator, objFile);
+    defer state.deinit();
+
+    defer testing.allocator.free(objFile);
+    while (state.end_of_stream == false) {
+        try read_line(&state);
+        // Exclude `v ` from the string.
+        const number_str = state.current_line[2..];
+        var end_pos: u32 = 0;
+        {
+            const num = try slice_number(f64, number_str, 0, number_str.len, ' ');
+            end_pos = num.end_pos;
+            try testing.expectEqual(@as(f64, -0.000581696), num.value);
+        }
+
+        {
+            const num = try slice_number(f64, number_str, end_pos, number_str.len, ' ');
+            end_pos = num.end_pos;
+            try testing.expectEqual(@as(f64, -0.734665), num.value);
+        }
+
+        {
+            const num = try slice_number(f64, number_str, end_pos, number_str.len, ' ');
+            end_pos = num.end_pos;
+            try testing.expectEqual(@as(f64, -0.623267), num.value);
         }
     }
 }
