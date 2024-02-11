@@ -107,6 +107,7 @@ fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_lengt
             const current_char = data[f..l];
 
             if (T == f64) {
+                log.err("CURRENT_CHAR: {s}", .{current_char});
                 const val: T = try fmt.parseFloat(T, current_char);
                 return .{ .value = val, .end_pos = @as(u32, @intCast(last)) };
             }
@@ -126,16 +127,18 @@ fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_lengt
 const ModelLineParseError = error{ ParseError, InvalidCharacter };
 
 /// Parses a given line from a .obj file.
-fn parseVertices(data: []const u8, data_length: usize) ModelLineParseError!Vec3f {
+fn parseVertices(data: []const u8) ModelLineParseError!Vec3f {
     log.info("parseVertices: {s}", .{data});
+
+    const number_line = data[2..];
     var vec: Vec3f = Vec3f.init(.{ 0, 0, 0 });
     var end_pos: u32 = 0;
     var index: u4 = 0;
-    while (end_pos < data_length) : (index += 1) {
-        if (slice_number(f64, data, end_pos, data_length, ' ')) |result| {
+    while (end_pos < number_line.len) : (index += 1) {
+        if (slice_number(f64, number_line, end_pos, number_line.len, ' ')) |result| {
             end_pos = result.end_pos;
             log.info("\t index: {}", .{index});
-            log.info("\t data: {s}", .{data});
+            log.info("\t number_line: {s}", .{number_line});
             log.info("\t result.value: {}", .{result.value});
             vec.set(index, result.value);
         } else |err| switch (err) {
@@ -228,7 +231,7 @@ pub const Model = struct {
             const line = state.current_line;
             if (mem.startsWith(u8, line, "v ")) {
                 log.info("ASD_LINE: {s}", .{line});
-                if (parseVertices(line[2..], line.len - 2)) |vec| {
+                if (parseVertices(line[2..])) |vec| {
                     log.info("\t ASD_VEC: {}x{}", .{ vec.get(0), vec.get(1) });
                     if (self.verts.append(vec)) |_| {} else |err| switch (err) {
                         error.OutOfMemory => return ReadError.FileTooBig,
@@ -376,46 +379,63 @@ test "Test slice_number with file" {
 test "parseVertices" {
     const testing = @import("std").testing;
     {
-        const number_str = "-13 123 -33";
-        const vec = try parseVertices(number_str, number_str.len);
+        const number_str = "v -13 123 -33";
+        const vec = try parseVertices(number_str);
 
         try testing.expectEqual(Vec3f.init(.{ -13.0, 123.0, -33.0 }), vec);
     }
 
     {
-        const number_str = "-0.000581696 -0.734665 -0.623267";
-        const vec = try parseVertices(number_str, number_str.len);
+        const number_str = "v -0.000581696 -0.734665 -0.623267";
+        const vec = try parseVertices(number_str);
 
         try testing.expectEqual(Vec3f.init(.{ -0.000581696, -0.734665, -0.623267 }), vec);
     }
 
     {
-        const number_str = "3 3 3";
-        const vec = try parseVertices(number_str, number_str.len);
+        const number_str = "v 3 3 3";
+        const vec = try parseVertices(number_str);
 
         try testing.expectEqual(Vec3f.init(.{ 3, 3, 3 }), vec);
     }
 
     {
-        const number_str = "0 0 0";
-        const vec = try parseVertices(number_str, number_str.len);
+        const number_str = "v 0 0 0";
+        const vec = try parseVertices(number_str);
 
         try testing.expectEqual(Vec3f.init(.{ 0, 0, 0 }), vec);
     }
 
     {
-        const number_str = "0.68 0 0";
-        const vec = try parseVertices(number_str, number_str.len);
+        const number_str = "v 0.68 0 0";
+        const vec = try parseVertices(number_str);
 
         try testing.expectEqual(Vec3f.init(.{ 0.68, 0, 0 }), vec);
     }
 
     {
-        const number_str = "  0   0        0";
-        const vec = try parseVertices(number_str, number_str.len);
+        const number_str = "v  0   0        0";
+        const vec = try parseVertices(number_str);
 
         try testing.expectEqual(Vec3f.init(.{ 0, 0, 0 }), vec);
     }
+
+    // {
+    //     const objFile = asAbsolutePath("./test_assets/slice_number.obj", testing.allocator);
+    //     try testing.expect(objFile.len > 0);
+
+    //     var state = try ReadLineState.init(testing.allocator, objFile);
+    //     defer state.deinit();
+
+    //     defer testing.allocator.free(objFile);
+    //     while (state.end_of_stream == false) {
+    //         try read_line(&state);
+    //         log.err("ASDASDASD: {s}", .{state.current_line});
+    //         const vec = try parseVertices(state.current_line);
+
+    //         try testing.expectEqual(Vec3f.init(.{ -0.000581696, -0.734665, -0.623267 }), vec);
+    //     }
+    // }
 }
 
 test "parseFaces" {
