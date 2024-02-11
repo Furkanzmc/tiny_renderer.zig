@@ -58,10 +58,14 @@ const ReadLineState = struct {
     }
 };
 
-fn read_line(state: *ReadLineState) (fs.File.OpenError || ReadError || ModelLineParseError)!void {
+fn read_line(state: *ReadLineState) (fs.File.OpenError || ReadError)!void {
     if (state.file.reader().streamUntilDelimiter(state.buffer.writer(), LineEnding, null)) |_| {
         state.linenr += 1;
         if (state.allocator.alloc(u8, state.buffer.items.len)) |memory| {
+            if (state.current_line.len != 0) {
+                state.allocator.free(state.current_line);
+            }
+
             state.current_line = memory;
         } else |_| {
             return ReadError.CannotRead;
@@ -211,71 +215,46 @@ pub const Model = struct {
     }
 
     pub fn read(self: *Model, file_path: []const u8) (fs.File.OpenError || ReadError || ModelLineParseError)!void {
-        const file: fs.File = redFile: {
-            if (fs.openFileAbsolute(file_path, .{ .mode = fs.File.OpenMode.read_only })) |file| {
-                break :redFile file;
-            } else |err| {
-                return err;
+        var state = try ReadLineState.init(self.allocator, file_path);
+        defer state.deinit();
+        errdefer state.deinit();
+
+        while (!state.end_of_stream) {
+            try read_line(&state);
+            if (state.end_of_stream) {
+                break;
             }
-        };
-        defer file.close();
-        errdefer file.close();
 
-        var buffer = ArrayList(u8).init(self.allocator);
-        defer buffer.deinit();
-        errdefer buffer.deinit();
-
-        if (buffer.ensureTotalCapacity(32)) |_| {} else |_| {
-            return ReadError.CannotRead;
-        }
-
-        const reader = file.reader();
-        var line_nr: u64 = 0;
-        while (true) {
-            line_nr += 1;
-            if (reader.streamUntilDelimiter(buffer.writer(), LineEnding, null)) |_| {
-                defer buffer.clearRetainingCapacity();
-
-                const line = buffer.items;
-                if (mem.startsWith(u8, line, "v ")) {
-                    log.info("ASD_LINE: {s}", .{line});
-                    if (parseVertices(line[2..], line.len - 2)) |vec| {
-                        log.info("\t ASD_VEC: {}x{}", .{ vec.get(0), vec.get(1) });
-                        if (self.verts.append(vec)) |_| {} else |err| switch (err) {
-                            error.OutOfMemory => return ReadError.FileTooBig,
-                        }
-                    } else |err| switch (err) {
-                        ModelLineParseError.InvalidCharacter => log.err("Invalid character on line {}: {s}", .{ line_nr, line }),
-                        ModelLineParseError.ParseError => log.err("Parse error on line {}: {s}", .{ line_nr, line }),
+            const line = state.current_line;
+            if (mem.startsWith(u8, line, "v ")) {
+                log.info("ASD_LINE: {s}", .{line});
+                if (parseVertices(line[2..], line.len - 2)) |vec| {
+                    log.info("\t ASD_VEC: {}x{}", .{ vec.get(0), vec.get(1) });
+                    if (self.verts.append(vec)) |_| {} else |err| switch (err) {
+                        error.OutOfMemory => return ReadError.FileTooBig,
                     }
-                } else if (mem.startsWith(u8, line, "f ")) {
-                    if (parseFaces(line[2..])) |face| {
-                        if (self.face_verts.append(face.verts)) |_| {} else |err| switch (err) {
-                            error.OutOfMemory => return ReadError.FileTooBig,
-                        }
-
-                        if (self.face_tex.append(face.tex)) |_| {} else |err| switch (err) {
-                            error.OutOfMemory => return ReadError.FileTooBig,
-                        }
-
-                        if (self.face_nrm.append(face.nrm)) |_| {} else |err| switch (err) {
-                            error.OutOfMemory => return ReadError.FileTooBig,
-                        }
-                    } else |err| switch (err) {
-                        ModelLineParseError.InvalidCharacter => log.err("Invalid character on line {}: {s}", .{ line_nr, line }),
-                        ModelLineParseError.ParseError => log.err("Parse error on line {}: {s}", .{ line_nr, line }),
-                        fmt.ParseIntError.Overflow => log.err("Overflow with number on line {}: {s}", .{ line_nr, line }),
-                    }
+                } else |err| switch (err) {
+                    ModelLineParseError.InvalidCharacter => log.err("Invalid character on line {}: {s}", .{ state.linenr, line }),
+                    ModelLineParseError.ParseError => log.err("Parse error on line {}: {s}", .{ state.linenr, line }),
                 }
-            } else |err| switch (err) {
-                error.EndOfStream => {
-                    if (self.verts.items.len == 0) {
-                        return ReadError.CannotRead;
-                    } else {
-                        break;
+            } else if (mem.startsWith(u8, line, "f ")) {
+                if (parseFaces(line[2..])) |face| {
+                    if (self.face_verts.append(face.verts)) |_| {} else |err| switch (err) {
+                        error.OutOfMemory => return ReadError.FileTooBig,
                     }
-                },
-                else => return ReadError.CannotRead,
+
+                    if (self.face_tex.append(face.tex)) |_| {} else |err| switch (err) {
+                        error.OutOfMemory => return ReadError.FileTooBig,
+                    }
+
+                    if (self.face_nrm.append(face.nrm)) |_| {} else |err| switch (err) {
+                        error.OutOfMemory => return ReadError.FileTooBig,
+                    }
+                } else |err| switch (err) {
+                    ModelLineParseError.InvalidCharacter => log.err("Invalid character on line {}: {s}", .{ state.linenr, line }),
+                    ModelLineParseError.ParseError => log.err("Parse error on line {}: {s}", .{ state.linenr, line }),
+                    fmt.ParseIntError.Overflow => log.err("Overflow with number on line {}: {s}", .{ state.linenr, line }),
+                }
             }
         }
     }
