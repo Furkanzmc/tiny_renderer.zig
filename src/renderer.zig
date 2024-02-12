@@ -117,8 +117,6 @@ pub fn render_model(model: *const Model, image: *const Image, color: [4]u8) void
     log.debug("render_model:", .{});
     log.debug("\t face_count: {}", .{model.face_count()});
 
-    // Print mode.verts.items
-
     {
         var vert_index: u64 = 0;
         while (vert_index < model.verts.items.len) : (vert_index += 1) {

@@ -107,7 +107,6 @@ fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_lengt
             const current_char = data[f..l];
 
             if (T == f64) {
-                log.err("CURRENT_CHAR: {s}", .{current_char});
                 const val: T = try fmt.parseFloat(T, current_char);
                 return .{ .value = val, .end_pos = @as(u32, @intCast(last)) };
             }
@@ -128,7 +127,7 @@ const ModelLineParseError = error{ ParseError, InvalidCharacter };
 
 /// Parses a given line from a .obj file.
 fn parseVertices(data: []const u8) ModelLineParseError!Vec3f {
-    log.info("parseVertices: {s}", .{data});
+    assert(mem.startsWith(u8, data, "v "));
 
     const number_line = data[2..];
     var vec: Vec3f = Vec3f.init(.{ 0, 0, 0 });
@@ -137,9 +136,6 @@ fn parseVertices(data: []const u8) ModelLineParseError!Vec3f {
     while (end_pos < number_line.len) : (index += 1) {
         if (slice_number(f64, number_line, end_pos, number_line.len, ' ')) |result| {
             end_pos = result.end_pos;
-            log.info("\t index: {}", .{index});
-            log.info("\t number_line: {s}", .{number_line});
-            log.info("\t result.value: {}", .{result.value});
             vec.set(index, result.value);
         } else |err| switch (err) {
             SliceNumberError.InvalidCharacter => return ModelLineParseError.InvalidCharacter,
@@ -147,7 +143,6 @@ fn parseVertices(data: []const u8) ModelLineParseError!Vec3f {
         }
     }
 
-    log.info("\t vec: {}x{}", .{ vec.get(0), vec.get(1) });
     return vec;
 }
 
@@ -230,9 +225,7 @@ pub const Model = struct {
 
             const line = state.current_line;
             if (mem.startsWith(u8, line, "v ")) {
-                log.info("ASD_LINE: {s}", .{line});
-                if (parseVertices(line[2..])) |vec| {
-                    log.info("\t ASD_VEC: {}x{}", .{ vec.get(0), vec.get(1) });
+                if (parseVertices(line)) |vec| {
                     if (self.verts.append(vec)) |_| {} else |err| switch (err) {
                         error.OutOfMemory => return ReadError.FileTooBig,
                     }
@@ -420,22 +413,41 @@ test "parseVertices" {
         try testing.expectEqual(Vec3f.init(.{ 0, 0, 0 }), vec);
     }
 
-    // {
-    //     const objFile = asAbsolutePath("./test_assets/slice_number.obj", testing.allocator);
-    //     try testing.expect(objFile.len > 0);
+    {
+        const objFile = asAbsolutePath("./test_assets/slice_number.obj", testing.allocator);
+        try testing.expect(objFile.len > 0);
 
-    //     var state = try ReadLineState.init(testing.allocator, objFile);
-    //     defer state.deinit();
+        var state = try ReadLineState.init(testing.allocator, objFile);
+        defer state.deinit();
 
-    //     defer testing.allocator.free(objFile);
-    //     while (state.end_of_stream == false) {
-    //         try read_line(&state);
-    //         log.err("ASDASDASD: {s}", .{state.current_line});
-    //         const vec = try parseVertices(state.current_line);
+        defer testing.allocator.free(objFile);
+        while (state.end_of_stream == false) {
+            try read_line(&state);
+            const vec = try parseVertices(state.current_line);
 
-    //         try testing.expectEqual(Vec3f.init(.{ -0.000581696, -0.734665, -0.623267 }), vec);
-    //     }
-    // }
+            try testing.expectEqual(Vec3f.init(.{ -0.000581696, -0.734665, -0.623267 }), vec);
+        }
+    }
+
+    {
+        const objFile = asAbsolutePath("./tutorial/obj/african_head.obj", testing.allocator);
+        try testing.expect(objFile.len > 0);
+
+        var state = try ReadLineState.init(testing.allocator, objFile);
+        defer state.deinit();
+
+        defer testing.allocator.free(objFile);
+        while (state.linenr < 2) {
+            try read_line(&state);
+
+            const vec = try parseVertices(state.current_line);
+            switch (state.linenr) {
+                1 => try testing.expectEqual(Vec3f.init(.{ -0.000581696, -0.734665, -0.623267 }), vec),
+                2 => try testing.expectEqual(Vec3f.init(.{ 0.000283538, -1, 0.286843 }), vec),
+                else => unreachable,
+            }
+        }
+    }
 }
 
 test "parseFaces" {
@@ -508,10 +520,10 @@ test "Test Model init" {
 
     {
         try testing.expectEqual(@as(usize, 4), model.verts.items.len);
-        try testing.expectEqual(model.verts.items[0], Vec3f.init(.{ -1, -1, -1 }));
-        try testing.expectEqual(model.verts.items[1], Vec3f.init(.{ 1, -1, -1 }));
-        try testing.expectEqual(model.verts.items[2], Vec3f.init(.{ 1, -1, 1 }));
-        try testing.expectEqual(model.verts.items[3], Vec3f.init(.{ -1, -1, 1 }));
+        try testing.expectEqual(Vec3f.init(.{ -1, -1, -1 }), model.verts.items[0]);
+        try testing.expectEqual(Vec3f.init(.{ 1, -1, -1 }), model.verts.items[1]);
+        try testing.expectEqual(Vec3f.init(.{ 1, -1, 1 }), model.verts.items[2]);
+        try testing.expectEqual(Vec3f.init(.{ -1, -1, 1 }), model.verts.items[3]);
     }
 
     {
