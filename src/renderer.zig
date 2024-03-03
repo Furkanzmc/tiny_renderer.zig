@@ -8,11 +8,11 @@ const Vec = @import("types.zig").Vec;
 const Vec3f = Vec(3, f64);
 const PointU = types.Point(u64);
 
-fn to_float(val: usize) f64 {
+inline fn to_float(val: usize) f64 {
     return @floatFromInt(val);
 }
 
-fn swap(comptime T: type, left: *T, right: *T) void {
+inline fn swap(comptime T: type, left: *T, right: *T) void {
     var tmp = left.*;
     left.* = right.*;
     right.* = tmp;
@@ -78,11 +78,8 @@ pub fn draw_line(image: *const Image, _from: PointU, _to: PointU, color: []const
 
     const dx: i64 = @as(i64, @intCast(to.x)) - @as(i64, @intCast(from.x));
     const dy: i64 = @as(i64, @intCast(to.y)) - @as(i64, @intCast(from.y));
-    const derror = blk: {
-        const val: f64 = @as(f64, @floatFromInt(dy)) / @as(f64, @floatFromInt(dx));
-        break :blk if (val < 0) val * -1 else val;
-    };
-    var error2: f64 = 0;
+    const derror: i64 = (if (dy < 0) dy * -1 else dy) * 2;
+    var error2: i64 = 0;
 
     var x = from.x;
     var y = from.y;
@@ -94,20 +91,21 @@ pub fn draw_line(image: *const Image, _from: PointU, _to: PointU, color: []const
         }
 
         error2 += derror;
-        const fdx: f64 = @floatFromInt(dx);
-        if (error2 > fdx) {
+        if (error2 > dx) {
             if (to.y > from.y) {
                 y += 1;
             } else {
                 y -= 1;
             }
-            error2 -= fdx * 2.0;
+
+            error2 -= dx * 2;
         }
     }
 }
 
 pub fn render_model(model: *const Model, image: *const Image, color: [4]u8) void {
     var face_index: u64 = 0;
+
     while (face_index < model.face_count()) : (face_index += 1) {
         const face: [3]u64 = model.face_vert(face_index);
 
