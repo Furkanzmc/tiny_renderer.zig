@@ -125,7 +125,7 @@ fn slice_number(comptime T: type, data: []const u8, start_index: u32, data_lengt
 
 const ModelLineParseError = error{ ParseError, InvalidCharacter };
 
-/// Parses a given line from a .obj file.
+/// Parses a given line from an .obj file.
 fn parseVertices(data: []const u8) ModelLineParseError!Vec3f {
     assert(mem.startsWith(u8, data, "v "));
 
@@ -154,6 +154,14 @@ fn parseFaces(line: []const u8) (ModelLineParseError || fmt.ParseIntError)!struc
     var it = mem.split(u8, line, " ");
     var iteration: u4 = 0;
     while (it.next()) |numbers| {
+        if (numbers.len == 0) {
+            continue;
+        }
+
+        if (mem.eql(u8, numbers, " ")) {
+            continue;
+        }
+
         assert(iteration < 3);
 
         var valIt = mem.split(u8, numbers, "/");
@@ -372,7 +380,7 @@ test "Test slice_number with file" {
 test "parseVertices" {
     const testing = @import("std").testing;
     {
-        const number_str = "v -13 123 -33";
+        const number_str = "v    -13 123 -33";
         const vec = try parseVertices(number_str);
 
         try testing.expectEqual(Vec3f.init(.{ -13.0, 123.0, -33.0 }), vec);
@@ -453,7 +461,7 @@ test "parseVertices" {
 test "parseFaces" {
     const testing = @import("std").testing;
     {
-        const number_str = "13/123/33 10/11/32 1/23/23";
+        const number_str = "13/123/33  10/11/32  1/23/23";
         const result = try parseFaces(number_str);
 
         try testing.expectEqual(@as(u64, 13), result.verts[0]);
